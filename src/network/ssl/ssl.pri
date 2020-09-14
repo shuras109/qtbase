@@ -100,6 +100,9 @@ qtConfig(ssl) {
             SOURCES += ssl/qdtls_openssl.cpp
         }
 
+    HEADERS += ssl/msspi/src/msspi.h
+    SOURCES += ssl/msspi/src/msspi.cpp
+
         qtConfig(ocsp): HEADERS += ssl/qocsp_p.h
 
         QMAKE_CXXFLAGS += -DOPENSSL_API_COMPAT=0x10100000L
