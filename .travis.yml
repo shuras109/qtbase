@@ -8,7 +8,3 @@ script:
   - make sub-src-qmake_all
   - cd src
   - make sub-network
-addons:
-  apt:
-    sources:
-    - ubuntu-toolchain-r-test
