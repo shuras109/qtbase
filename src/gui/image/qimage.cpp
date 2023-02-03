@@ -2157,7 +2157,7 @@ static QImage convertWithPalette(const QImage &src, QImage::Format format,
     QImage dest(src.size(), format);
     dest.setColorTable(clut);
 
-    QImageData::get(dest)->text = QImageData::get(src)->text;
+    copyMetadata(QImageData::get(dest), QImageData::get(src));
 
     int h = src.height();
     int w = src.width();
@@ -2258,6 +2258,7 @@ bool QImage::reinterpretAsFormat(Format format)
         // In case detach() ran out of memory
         if (!d) {
             d = oldD;
+            d->ref.ref();
             return false;
         }
     }
