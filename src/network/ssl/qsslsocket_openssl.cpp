@@ -1103,6 +1103,9 @@ void QSslSocketBackendPrivate::startClientEncryption()
         if( configuration.sslOptions & QSsl::SslOptionUniqueCache )
             msspi_set_cachestring( msh, QDateTime::currentDateTime().toString( QLatin1String( "yyyy.MM.dd_hh:mm:ss.zzz" ) ).toLatin1().data() );
 
+        if( !( configuration.sslOptions & QSsl::SslOptionDisablePinCache ) )
+            msspi_set_pin_cache( msh );
+
         if( !q->localCertificate().isNull() )
         {
             if( !QSslConfiguration::msspiCertStore.isNull() )
