@@ -112,6 +112,7 @@ namespace QSsl {
         SslOptionEnableMSSPI = 0x80000000,
         SslOptionEnableSilent = 0x40000000,
         SslOptionUniqueCache = 0x20000000,
+        SslOptionDisablePinCache = 0x10000000,
         SslOptionDisableEmptyFragments = 0x01,
         SslOptionDisableSessionTickets = 0x02,
         SslOptionDisableCompression = 0x04,
