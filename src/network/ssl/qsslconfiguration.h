@@ -198,7 +198,6 @@ public:
     static const char NextProtocolHttp1_1[];
 
     static QByteArray msspiCertStore;
-    static QList<QByteArray> msspiIssuerList;
 
 private:
     friend class QSslSocket;
