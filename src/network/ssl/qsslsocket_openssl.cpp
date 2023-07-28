@@ -1001,21 +1001,21 @@ static int QSslSocketMSSPIWrite( QSslSocketBackendPrivate * qssl, const void * b
 
 static int QSslSocketCertCallback( QSslSocketBackendPrivate * qssl )
 {
-    if( QSslConfiguration::msspiIssuerList.isEmpty() )
-    {
-        const char * bufs[64];
-        int lens[64];
-        size_t count = 64;
+    QSslSocket *socketObject =  static_cast<QSslSocket *>(qssl->q_ptr);
+    QList<QByteArray> msspiIssuerList;
+    const char * bufs[64];
+    int lens[64];
+    size_t count = 64;
 
-        if( msspi_get_issuerlist( qssl->msh, bufs, lens, &count ) )
+    if( msspi_get_issuerlist( qssl->msh, bufs, lens, &count ) )
+    {
+        for( size_t i = 0; i < count; i++ )
         {
-            for( size_t i = 0; i < count; i++ )
-            {
-                QByteArray issuer( bufs[i], lens[i] );
-                QSslConfiguration::msspiIssuerList.push_back( issuer );
-            }
+            QByteArray issuer( bufs[i], lens[i] );
+            msspiIssuerList.push_back( issuer );
         }
     }
+    socketObject->setProperty("msspiIssuerList", QVariant::fromValue<QList<QByteArray>>(msspiIssuerList));
 
     return 1;
 }
