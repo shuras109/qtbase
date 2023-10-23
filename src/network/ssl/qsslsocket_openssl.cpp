@@ -1074,7 +1074,9 @@ void QSslSocketBackendPrivate::startClientEncryption()
 
             msh = msspi_open( this, (msspi_read_cb)QSslSocketMSSPIRead, (msspi_write_cb)QSslSocketMSSPIWrite );
             if( !msh ) {
-                setErrorAndEmit( QAbstractSocket::SslInternalError, QSslSocket::tr( "Error creating MSSPI_HANDLE" ) );
+                setErrorAndEmit(QAbstractSocket::SslInternalError,
+                                QSslSocket::tr("Error creating MSSPI_HANDLE: 0x%1").arg(QString::number(msspi_last_error(), 16)));
+
                 return;
             }
         }
@@ -1515,6 +1517,12 @@ void QSslSocketBackendPrivate::transmit()
                 systemOrSslErrorDetected = true;
                 {
                     const ScopedBool bg(inSetAndEmitError, true);
+#ifdef MSSPISSL
+                    if( msh )
+                        setErrorAndEmit(QAbstractSocket::SslInternalError,
+                                        QSslSocket::tr("Error while reading: MSSPI read: 0x%1").arg(QString::number(msspi_last_error(), 16)));
+                    else
+#endif
                     setErrorAndEmit(QAbstractSocket::SslInternalError,
                                     QSslSocket::tr("Error while reading: %1").arg(getErrorsFromOpenSsl()));
                 }
@@ -1527,6 +1535,12 @@ void QSslSocketBackendPrivate::transmit()
                 // So this default case should never be triggered.
                 {
                     const ScopedBool bg(inSetAndEmitError, true);
+#ifdef MSSPISSL
+                    if( msh )
+                        setErrorAndEmit(QAbstractSocket::SslInternalError,
+                                        QSslSocket::tr("Error while reading: MSSPI read: 0x%1").arg(QString::number(msspi_last_error(), 16)));
+                    else
+#endif
                     setErrorAndEmit(QAbstractSocket::SslInternalError,
                                     QSslSocket::tr("Error while reading: %1").arg(getErrorsFromOpenSsl()));
                 }
@@ -1774,6 +1788,7 @@ bool QSslSocketBackendPrivate::startHandshake()
 void QSslSocketBackendPrivate::storePeerCertificates()
 {
 #ifdef MSSPISSL
+    Q_Q(QSslSocket);
     if( msh )
     {
         const char * bufs[64];
@@ -1800,7 +1815,20 @@ void QSslSocketBackendPrivate::storePeerCertificates()
                 q_X509_free( x509 );
             }
         }
+        count = 64;
+        if(msspi_get_peercerts(msh, bufs, lens, &count))
+        {
+            for(size_t i = 0; i < count; i++)
+            {
+                QList<QSslCertificate> msspiPeerSuppliedCertificates;
+                const QByteArray derBuf(bufs[i], lens[i]);
+                const QSslCertificate suppliedCertificate(derBuf, QSsl::Der);
+                if(!suppliedCertificate.isNull())
+                    msspiPeerSuppliedCertificates.append(suppliedCertificate);
 
+                q->setProperty("msspiPeerSuppliedCertificates", QVariant::fromValue<QList<QSslCertificate>>(msspiPeerSuppliedCertificates));
+            }
+        }
         return;
     }
 #endif
