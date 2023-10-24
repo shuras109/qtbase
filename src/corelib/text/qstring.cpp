@@ -647,6 +647,8 @@ void qt_from_latin1(ushort *dst, const char *str, size_t size) noexcept
 #  endif
 #endif
 #if defined(__mips_dsp)
+    static_assert(sizeof(qsizetype) == sizeof(int),
+                  "oops, the assembler implementation needs to be called in a loop");
     if (size > 20)
         qt_fromlatin1_mips_asm_unroll8(dst, str, size);
     else
@@ -802,6 +804,8 @@ static void qt_to_latin1_internal(uchar *dst, const ushort *src, qsizetype lengt
     }
 #endif
 #if defined(__mips_dsp)
+    static_assert(sizeof(qsizetype) == sizeof(int),
+                  "oops, the assembler implementation needs to be called in a loop");
     qt_toLatin1_mips_dsp_asm(dst, src, length);
 #else
     while (length--) {
@@ -12312,7 +12316,7 @@ static qsizetype qLastIndexOf(Haystack haystack0, qsizetype from,
     const auto needle = needle0.data();
     const auto *end = haystack;
     haystack += from;
-    const std::size_t sl_minus_1 = sl - 1;
+    const std::size_t sl_minus_1 = sl ? sl - 1 : 0;
     const auto *n = needle + sl_minus_1;
     const auto *h = haystack + sl_minus_1;
     std::size_t hashNeedle = 0, hashHaystack = 0;

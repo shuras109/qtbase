@@ -980,7 +980,7 @@ inline uint QXmlStreamReaderPrivate::peekChar()
 bool QXmlStreamReaderPrivate::scanUntil(const char *str, short tokenToInject)
 {
     int pos = textBuffer.size();
-    int oldLineNumber = lineNumber;
+    const auto oldLineNumber = lineNumber;
 
     uint c;
     while ((c = getChar()) != StreamEOF) {
@@ -3473,7 +3473,7 @@ void QXmlStreamWriter::setAutoFormatting(bool enable)
 /*!
  \since 4.4
 
- Returns \c true if auto formattting is enabled, otherwise \c false.
+ Returns \c true if auto formatting is enabled, otherwise \c false.
  */
 bool QXmlStreamWriter::autoFormatting() const
 {

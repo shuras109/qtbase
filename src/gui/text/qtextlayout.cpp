@@ -1336,13 +1336,13 @@ void QTextLayout::drawCursor(QPainter *p, const QPointF &pos, int cursorPosition
     bool rightToLeft = d->isRightToLeft();
     if (itm >= 0) {
         const QScriptItem &si = d->layoutData->items.at(itm);
-        if (si.ascent > 0)
+        if (si.ascent >= 0)
             base = si.ascent;
-        if (si.descent > 0)
+        if (si.descent >= 0)
             descent = si.descent;
         rightToLeft = si.analysis.bidiLevel % 2;
     }
-    qreal y = position.y() + (sl.y + sl.base() - base).toReal();
+    qreal y = position.y() + (sl.y + sl.base() + sl.descent - base - descent).toReal();
     bool toggleAntialiasing = !(p->renderHints() & QPainter::Antialiasing)
                               && (p->transform().type() > QTransform::TxTranslate);
     if (toggleAntialiasing)
@@ -1350,7 +1350,20 @@ void QTextLayout::drawCursor(QPainter *p, const QPointF &pos, int cursorPosition
     QPainter::CompositionMode origCompositionMode = p->compositionMode();
     if (p->paintEngine()->hasFeature(QPaintEngine::RasterOpModes))
         p->setCompositionMode(QPainter::RasterOp_NotDestination);
-    p->fillRect(QRectF(x, y, qreal(width), (base + descent).toReal()), p->pen().brush());
+    const QTransform &deviceTransform = p->deviceTransform();
+    const qreal xScale = deviceTransform.m11();
+    if (deviceTransform.type() != QTransform::TxScale || std::trunc(xScale) == xScale) {
+        p->fillRect(QRectF(x, y, qreal(width), (base + descent).toReal()), p->pen().brush());
+    } else {
+        // Ensure consistently rendered cursor width under fractional scaling
+        const QPen origPen = p->pen();
+        QPen pen(origPen.brush(), qRound(width * xScale), Qt::SolidLine, Qt::FlatCap);
+        pen.setCosmetic(true);
+        const qreal center = x + qreal(width) / 2;
+        p->setPen(pen);
+        p->drawLine(QPointF(center, y), QPointF(center, y + (base + descent).toReal()));
+        p->setPen(origPen);
+    }
     p->setCompositionMode(origCompositionMode);
     if (toggleAntialiasing)
         p->setRenderHint(QPainter::Antialiasing, false);

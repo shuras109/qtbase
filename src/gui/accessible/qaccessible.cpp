@@ -54,6 +54,7 @@
 #include <QtCore/qdebug.h>
 #include <QtCore/qloggingcategory.h>
 #include <QtCore/qmetaobject.h>
+#include <QtCore/private/qmetaobject_p.h>
 #include <QtCore/qhash.h>
 #include <private/qfactoryloader_p.h>
 
@@ -162,7 +163,6 @@ Q_LOGGING_CATEGORY(lcAccessibilityCore, "qt.accessibility.core");
     \value hasPopup                The object opens a popup.
     \value hotTracked              The object's appearance is sensitive to the mouse cursor position.
     \value invalid                 The object is no longer valid (because it has been deleted).
-    \value invalidEntry            Input validation current input invalid.
     \value invisible               The object is not visible to the user.
     \value linked                  The object is linked to another object, e.g. a hyperlink.
     \value marqueed                The object displays scrolling contents, e.g. a log view.
@@ -681,6 +681,25 @@ QAccessibleInterface *QAccessible::queryAccessibleInterface(QObject *object)
     // Create a QAccessibleInterface for the object class. Start by the most
     // derived class and walk up the class hierarchy.
     const QMetaObject *mo = object->metaObject();
+    const auto *objectPriv = QObjectPrivate::get(object);
+    /*
+     We do not want to cache each and every QML metaobject (Button_QMLTYPE_124,
+     Button_QMLTYPE_125, etc.). Those dynamic metaobjects shouldn't have an
+     accessible interface in any case. Instead, we start the whole checking
+     with the first non-dynamic meta-object. To avoid potential regressions
+     in other areas of Qt that also use dynamic metaobjects, we only do this
+     for objects that are QML-related (approximated by checking whether they
+     have ddata set).
+    */
+    const bool qmlRelated = !objectPriv->isDeletingChildren &&
+                            objectPriv->declarativeData;
+    while (qmlRelated && mo) {
+        auto mop = QMetaObjectPrivate::get(mo);
+        if (!mop || !(mop->flags & DynamicMetaObject))
+            break;
+
+        mo = mo->superClass();
+    };
     while (mo) {
         const QString cn = QLatin1String(mo->className());
 
@@ -696,14 +715,15 @@ QAccessibleInterface *QAccessible::queryAccessibleInterface(QObject *object)
         // Find a QAccessiblePlugin (factory) for the class name. If there's
         // no entry in the cache try to create it using the plugin loader.
         if (!qAccessiblePlugins()->contains(cn)) {
+            QAccessiblePlugin *factory = nullptr; // 0 means "no plugin found". This is cached as well.
             const int index = loader()->indexOf(cn);
-            if (index != -1) {
-                QAccessiblePlugin *factory = qobject_cast<QAccessiblePlugin *>(loader()->instance(index));
-                qAccessiblePlugins()->insert(cn, factory);
-            }
+            if (index != -1)
+                factory = qobject_cast<QAccessiblePlugin *>(loader()->instance(index));
+            qAccessiblePlugins()->insert(cn, factory);
         }
 
         // At this point the cache should contain a valid factory pointer or 0:
+        Q_ASSERT(qAccessiblePlugins()->contains(cn));
         QAccessiblePlugin *factory = qAccessiblePlugins()->value(cn);
         if (factory) {
             QAccessibleInterface *result = factory->create(cn, object);

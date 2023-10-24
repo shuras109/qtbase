@@ -50,6 +50,7 @@
 #include <qstring.h>
 #include <qdatetime.h>
 #include <qrandom.h>
+#include "private/qsystemlibrary_p.h"
 
 #ifdef Q_OS_WIN
 #include <qmutex.h>
@@ -620,9 +621,11 @@ QByteArray QAuthenticatorPrivate::calculateResponse(const QByteArray &requestMet
         } else {
             QByteArray phase3Token;
 #if QT_CONFIG(sspi) // SSPI
-            phase3Token = qSspiContinue(this, method, host, QByteArray::fromBase64(challenge));
+            if (sspiWindowsHandles)
+                phase3Token = qSspiContinue(this, method, host, QByteArray::fromBase64(challenge));
 #elif QT_CONFIG(gssapi) // GSSAPI
-            phase3Token = qGssapiContinue(this, QByteArray::fromBase64(challenge));
+            if (gssApiHandles)
+                phase3Token = qGssapiContinue(this, QByteArray::fromBase64(challenge));
 #endif
             if (!phase3Token.isEmpty()) {
                 response = phase3Token.toBase64();
@@ -1563,7 +1566,7 @@ static bool q_SSPI_library_load()
 
     // Initialize security interface
     if (pSecurityFunctionTable == nullptr) {
-        securityDLLHandle = LoadLibrary(L"secur32.dll");
+        securityDLLHandle = QSystemLibrary::load(L"secur32");
         if (securityDLLHandle != nullptr) {
             INIT_SECURITY_INTERFACE pInitSecurityInterface =
                 reinterpret_cast<INIT_SECURITY_INTERFACE>(
@@ -1589,7 +1592,8 @@ static QByteArray qSspiStartup(QAuthenticatorPrivate *ctx, QAuthenticatorPrivate
 
     if (!ctx->sspiWindowsHandles)
         ctx->sspiWindowsHandles.reset(new QSSPIWindowsHandles);
-    memset(&ctx->sspiWindowsHandles->credHandle, 0, sizeof(CredHandle));
+    SecInvalidateHandle(&ctx->sspiWindowsHandles->credHandle);
+    SecInvalidateHandle(&ctx->sspiWindowsHandles->ctxHandle);
 
     SEC_WINNT_AUTH_IDENTITY auth;
     auth.Flags = SEC_WINNT_AUTH_IDENTITY_UNICODE;

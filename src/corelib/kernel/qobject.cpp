@@ -1010,7 +1010,7 @@ QObject::~QObject()
         emit destroyed(this);
     }
 
-    if (d->declarativeData) {
+    if (!d->isDeletingChildren && d->declarativeData) {
         if (static_cast<QAbstractDeclarativeDataImpl*>(d->declarativeData)->ownedByQml1) {
             if (QAbstractDeclarativeData::destroyed_qml1)
                 QAbstractDeclarativeData::destroyed_qml1(d->declarativeData, this);
@@ -1580,7 +1580,7 @@ void QObject::moveToThread(QThread *targetThread)
 
     QThreadData *currentData = QThreadData::current();
     QThreadData *targetData = targetThread ? QThreadData::get2(targetThread) : nullptr;
-    QThreadData *thisThreadData = d->threadData.loadRelaxed();
+    QThreadData *thisThreadData = d->threadData.loadAcquire();
     if (!thisThreadData->thread.loadAcquire() && currentData == targetData) {
         // one exception to the rule: we allow moving objects with no thread affinity to the current thread
         currentData = d->threadData;
@@ -2460,6 +2460,7 @@ static bool check_method_code(int code, const QObject *object,
     return true;
 }
 
+Q_DECL_COLD_FUNCTION
 static void err_method_notfound(const QObject *object,
                                 const char *method, const char *func)
 {
@@ -2481,6 +2482,7 @@ static void err_method_notfound(const QObject *object,
 }
 
 
+Q_DECL_COLD_FUNCTION
 static void err_info_about_objects(const char * func,
                                     const QObject * sender,
                                     const QObject * receiver)
@@ -2620,7 +2622,7 @@ int QObject::receivers(const char *signal) const
         if (!d->isSignalConnected(signal_index))
             return receivers;
 
-        if (d->declarativeData && QAbstractDeclarativeData::receivers) {
+        if (!d->isDeletingChildren && d->declarativeData && QAbstractDeclarativeData::receivers) {
             receivers += QAbstractDeclarativeData::receivers(d->declarativeData, this,
                                                              signal_index);
         }

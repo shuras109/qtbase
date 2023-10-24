@@ -61,7 +61,7 @@
 #include <QtCore/private/qlocking_p.h>
 #include <QtCore/qdir.h>
 #include <QtCore/qlibraryinfo.h>
-#include <QtCore/qnumeric.h>
+#include <QtCore/private/qnumeric_p.h>
 #include <QtDebug>
 #ifndef QT_NO_ACCESSIBILITY
 #include "qaccessible.h"
@@ -140,7 +140,7 @@ Q_GUI_EXPORT bool qt_is_gui_used = true;
 Qt::MouseButtons QGuiApplicationPrivate::mouse_buttons = Qt::NoButton;
 Qt::KeyboardModifiers QGuiApplicationPrivate::modifier_buttons = Qt::NoModifier;
 
-QPointF QGuiApplicationPrivate::lastCursorPosition(qInf(), qInf());
+QPointF QGuiApplicationPrivate::lastCursorPosition(qt_inf(), qt_inf());
 
 QWindow *QGuiApplicationPrivate::currentMouseWindow = nullptr;
 
@@ -3064,7 +3064,7 @@ void QGuiApplicationPrivate::processTouchEvent(QWindowSystemInterfacePrivate::To
                 QEvent::Type mouseEventType = QEvent::MouseMove;
                 Qt::MouseButton button = Qt::NoButton;
                 Qt::MouseButtons buttons = Qt::LeftButton;
-                if (eventType == QEvent::TouchBegin && m_fakeMouseSourcePointId < 0)
+                if (eventType == QEvent::TouchBegin || m_fakeMouseSourcePointId < 0)
                     m_fakeMouseSourcePointId = touchPoints.first().id();
                 for (const auto &touchPoint : touchPoints) {
                     if (touchPoint.id() == m_fakeMouseSourcePointId) {

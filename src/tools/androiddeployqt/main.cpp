@@ -157,6 +157,7 @@ struct Options
     QString sdkPath;
     QString sdkBuildToolsVersion;
     QString ndkPath;
+    QString ndkVersion;
     QString jdkPath;
 
     // Build paths
@@ -343,7 +344,7 @@ QString fileArchitecture(const Options &options, const QString &path)
         return {};
     }
 
-    readElf = QLatin1String("%1 -needed-libs %2").arg(shellQuote(readElf), shellQuote(path));
+    readElf = QLatin1String("%1 --needed-libs %2").arg(shellQuote(readElf), shellQuote(path));
 
     FILE *readElfCommand = openProcess(readElf);
     if (!readElfCommand) {
@@ -891,6 +892,30 @@ bool readInputFile(Options *options)
             return false;
         }
         options->ndkPath = ndk.toString();
+    }
+
+    {
+        const QString ndkPropertiesPath = options->ndkPath + QStringLiteral("/source.properties");
+        QFile file(ndkPropertiesPath);
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            const char pkgRevisionKey[] = "Pkg.Revision";
+            while (!file.atEnd()) {
+                const QByteArray line = file.readLine();
+                if (line.startsWith(pkgRevisionKey)) {
+                    const QList<QByteArray> parts = line.split('=');
+                    if (parts.size() == 2 && parts.at(0).trimmed() == QByteArray(pkgRevisionKey)) {
+                        options->ndkVersion = QString::fromLocal8Bit(parts.at(1).trimmed());
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (options->ndkVersion.isEmpty()) {
+            fprintf(stderr, "Couldn't retrieve the NDK version from \"%s\".\n",
+                    qPrintable(ndkPropertiesPath));
+            return false;
+        }
     }
 
     {
@@ -1629,7 +1654,7 @@ QStringList getQtLibsFromElf(const Options &options, const QString &fileName)
         return QStringList();
     }
 
-    readElf = QLatin1String("%1 -needed-libs %2").arg(shellQuote(readElf), shellQuote(fileName));
+    readElf = QLatin1String("%1 --needed-libs %2").arg(shellQuote(readElf), shellQuote(fileName));
 
     FILE *readElfCommand = openProcess(readElf);
     if (!readElfCommand) {
@@ -1794,7 +1819,7 @@ bool scanImports(Options *options, QSet<QString> *usedDependencies)
                     qPrintable(object.value(QLatin1String("name")).toString()));
         } else {
             if (options->verbose)
-                fprintf(stdout, "  -- Adding '%s' as QML dependency\n", path.toLocal8Bit().constData());
+                fprintf(stdout, "  -- Adding '%s' as QML dependency\n", qPrintable(path));
 
             QFileInfo info(path);
 
@@ -1834,30 +1859,57 @@ bool scanImports(Options *options, QSet<QString> *usedDependencies)
                 return false;
             }
 
+            importPathOfThisImport = QDir(importPathOfThisImport).absolutePath() + QLatin1Char('/');
+            QList<QtDependency> qmlImportsDependencies;
+            auto collectQmlDependency = [&usedDependencies, &qmlImportsDependencies,
+                                         &importPathOfThisImport](const QString &filePath) {
+                if (!usedDependencies->contains(filePath)) {
+                    usedDependencies->insert(filePath);
+                    qmlImportsDependencies += QtDependency(
+                            QLatin1String("qml/") + filePath.mid(importPathOfThisImport.size()),
+                            filePath);
+                }
+            };
+
+
             QDir dir(importPathOfThisImport);
             importPathOfThisImport = dir.absolutePath() + QLatin1Char('/');
 
             const QList<QtDependency> fileNames = findFilesRecursively(*options, info, importPathOfThisImport);
             for (QtDependency fileName : fileNames) {
-                if (usedDependencies->contains(fileName.absolutePath))
-                    continue;
-
-                usedDependencies->insert(fileName.absolutePath);
-
-                if (options->verbose)
-                    fprintf(stdout, "    -- Appending dependency found by qmlimportscanner: %s\n", qPrintable(fileName.absolutePath));
-
-                // Put all imports in default import path in assets
-                fileName.relativePath.prepend(QLatin1String("qml/"));
-                options->qtDependencies[options->currentArchitecture].append(fileName);
-
-                if (fileName.absolutePath.endsWith(QLatin1String(".so")) && checkArchitecture(*options, fileName.absolutePath)) {
+                if (!usedDependencies->contains(fileName.absolutePath) && fileName.absolutePath.endsWith(QLatin1String(".so")) && checkArchitecture(*options, fileName.absolutePath)) {
                     QSet<QString> remainingDependencies;
-                    if (!readDependenciesFromElf(options, fileName.absolutePath, usedDependencies, &remainingDependencies))
-                        return false;
-
+                    if (readDependenciesFromElf(options, fileName.absolutePath, usedDependencies, &remainingDependencies))
+                        collectQmlDependency(fileName.absolutePath);
                 }
             }
+
+            QFileInfo qmldirFileInfo = QFileInfo(path + QLatin1Char('/') + QLatin1String("qmldir"));
+            if (qmldirFileInfo.exists()) {
+                collectQmlDependency(qmldirFileInfo.absoluteFilePath());
+            }
+
+            QVariantList qmlFiles =
+                    object.value(QLatin1String("components")).toArray().toVariantList();
+            qmlFiles.append(object.value(QLatin1String("scripts")).toArray().toVariantList());
+            bool qmlFilesMissing = false;
+            for (const auto &qmlFileEntry : qmlFiles) {
+                QFileInfo fileInfo(qmlFileEntry.toString());
+                if (!fileInfo.exists()) {
+                    qmlFilesMissing = true;
+                    break;
+                }
+                collectQmlDependency(fileInfo.absoluteFilePath());
+            }
+
+            if (qmlFilesMissing) {
+                if (options->verbose)
+                    fprintf(stdout,
+                            "    -- Skipping because the required qml files are missing.\n");
+                continue;
+            }
+
+            options->qtDependencies[options->currentArchitecture].append(qmlImportsDependencies);
         }
     }
 
@@ -2270,15 +2322,16 @@ static GradleProperties readGradleProperties(const QString &path)
 
 static bool mergeGradleProperties(const QString &path, GradleProperties properties)
 {
-    QFile::remove(path + QLatin1Char('~'));
-    QFile::rename(path, path + QLatin1Char('~'));
+    const QString oldPathStr = path + QLatin1Char('~');
+    QFile::remove(oldPathStr);
+    QFile::rename(path, oldPathStr);
     QFile file(path);
     if (!file.open(QIODevice::Truncate | QIODevice::WriteOnly | QIODevice::Text)) {
         fprintf(stderr, "Can't open file: %s for writing\n", qPrintable(file.fileName()));
         return false;
     }
 
-    QFile oldFile(path + QLatin1Char('~'));
+    QFile oldFile(oldPathStr);
     if (oldFile.open(QIODevice::ReadOnly)) {
         while (!oldFile.atEnd()) {
             QByteArray line(oldFile.readLine());
@@ -2294,6 +2347,7 @@ static bool mergeGradleProperties(const QString &path, GradleProperties properti
             file.write(line);
         }
         oldFile.close();
+        QFile::remove(oldPathStr);
     }
 
     for (GradleProperties::const_iterator it = properties.begin(); it != properties.end(); ++it)
@@ -2328,9 +2382,8 @@ bool buildAndroidProject(const Options &options)
 {
     GradleProperties localProperties;
     localProperties["sdk.dir"] = QDir::fromNativeSeparators(options.sdkPath).toUtf8();
-    localProperties["ndk.dir"] = QDir::fromNativeSeparators(options.ndkPath).toUtf8();
-
-    if (!mergeGradleProperties(options.outputDirectory + QLatin1String("local.properties"), localProperties))
+    const QString localPropertiesPath = options.outputDirectory + QLatin1String("local.properties");
+    if (!mergeGradleProperties(localPropertiesPath, localProperties))
         return false;
 
     QString gradlePropertiesPath = options.outputDirectory + QLatin1String("gradle.properties");
@@ -2341,6 +2394,7 @@ bool buildAndroidProject(const Options &options)
     gradleProperties["androidCompileSdkVersion"] = options.androidPlatform.split(QLatin1Char('-')).last().toLocal8Bit();
     gradleProperties["qtMinSdkVersion"] = options.minSdkVersion;
     gradleProperties["qtTargetSdkVersion"] = options.targetSdkVersion;
+    gradleProperties["androidNdkVersion"] = options.ndkVersion.toUtf8();
     if (gradleProperties["androidBuildToolsVersion"].isEmpty())
         gradleProperties["androidBuildToolsVersion"] = options.sdkBuildToolsVersion.toLocal8Bit();
 

@@ -532,6 +532,7 @@ void QPageSetupWidget::updateWidget()
 void QPageSetupWidget::setupPrinter() const
 {
     m_printer->setPageLayout(m_pageLayout);
+    m_printer->setPageOrientation(m_pageLayout.orientation());
 #if QT_CONFIG(cups)
     QCUPSSupport::PagesPerSheet pagesPerSheet = qvariant_cast<QCUPSSupport::PagesPerSheet>(m_ui.pagesPerSheetCombo->currentData()
 );
@@ -747,5 +748,7 @@ int QPageSetupDialog::exec()
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qpagesetupdialog_unix_p.cpp"
 
 #include "moc_qpagesetupdialog.cpp"

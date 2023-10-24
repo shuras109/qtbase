@@ -1169,12 +1169,21 @@ QModelIndex QAbstractItemView::rootIndex() const
 void QAbstractItemView::selectAll()
 {
     Q_D(QAbstractItemView);
-    SelectionMode mode = d->selectionMode;
-    if (mode == MultiSelection || mode == ExtendedSelection)
+    const SelectionMode mode = d->selectionMode;
+    switch (mode) {
+    case MultiSelection:
+    case ExtendedSelection:
         d->selectAll(QItemSelectionModel::ClearAndSelect
-                     |d->selectionBehaviorFlags());
-    else if (mode != SingleSelection)
-        d->selectAll(selectionCommand(d->model->index(0, 0, d->root)));
+                     | d->selectionBehaviorFlags());
+        break;
+    case NoSelection:
+    case ContiguousSelection:
+        if (d->model->hasChildren(d->root))
+            d->selectAll(selectionCommand(d->model->index(0, 0, d->root)));
+        break;
+    case SingleSelection:
+        break;
+    }
 }
 
 /*!
@@ -3408,15 +3417,39 @@ void QAbstractItemView::rowsAboutToBeRemoved(const QModelIndex &parent, int star
         } else {
             int row = end + 1;
             QModelIndex next;
-            do { // find the next visible and enabled item
+            const int rowCount = d->model->rowCount(parent);
+            bool found = false;
+            // find the next visible and enabled item
+            while (row < rowCount && !found) {
                 next = d->model->index(row++, current.column(), current.parent());
-            } while (next.isValid() && (isIndexHidden(next) || !d->isIndexEnabled(next)));
-            if (row > d->model->rowCount(parent)) {
-                row = start - 1;
-                do { // find the previous visible and enabled item
-                    next = d->model->index(row--, current.column(), current.parent());
-                } while (next.isValid() && (isIndexHidden(next) || !d->isIndexEnabled(next)));
+#ifdef QT_DEBUG
+                if (!next.isValid()) {
+                    qWarning("Model unexpectedly returned an invalid index");
+                    break;
+                }
+#endif
+                if (!isIndexHidden(next) && d->isIndexEnabled(next)) {
+                    found = true;
+                    break;
+                }
             }
+
+            if (!found) {
+                row = start - 1;
+                // find the previous visible and enabled item
+                while (row >= 0) {
+                    next = d->model->index(row--, current.column(), current.parent());
+#ifdef QT_DEBUG
+                    if (!next.isValid()) {
+                        qWarning("Model unexpectedly returned an invalid index");
+                        break;
+                    }
+#endif
+                    if (!isIndexHidden(next) && d->isIndexEnabled(next))
+                        break;
+                }
+            }
+
             setCurrentIndex(next);
         }
     }
@@ -3494,9 +3527,19 @@ void QAbstractItemViewPrivate::_q_columnsAboutToBeRemoved(const QModelIndex &par
         } else {
             int column = end;
             QModelIndex next;
-            do { // find the next visible and enabled item
+            const int columnCount = model->columnCount(current.parent());
+            // find the next visible and enabled item
+            while (column < columnCount) {
                 next = model->index(current.row(), column++, current.parent());
-            } while (next.isValid() && (q->isIndexHidden(next) || !isIndexEnabled(next)));
+#ifdef QT_DEBUG
+                if (!next.isValid()) {
+                    qWarning("Model unexpectedly returned an invalid index");
+                    break;
+                }
+#endif
+                if (!q->isIndexHidden(next) && isIndexEnabled(next))
+                    break;
+            }
             q->setCurrentIndex(next);
         }
     }
@@ -4305,7 +4348,7 @@ void QAbstractItemViewPrivate::updateEditorData(const QModelIndex &tl, const QMo
 
     In DND if something has been moved then this is called.
     Typically this means you should "remove" the selected item or row,
-    but the behavior is view dependant (table just clears the selected indexes for example).
+    but the behavior is view-dependent (table just clears the selected indexes for example).
 
     Either remove the selected rows or clear them
 */
@@ -4497,6 +4540,8 @@ QPixmap QAbstractItemViewPrivate::renderToPixmap(const QModelIndexList &indexes,
 void QAbstractItemViewPrivate::selectAll(QItemSelectionModel::SelectionFlags command)
 {
     if (!selectionModel)
+        return;
+    if (!model->hasChildren(root))
         return;
 
     QItemSelection selection;
